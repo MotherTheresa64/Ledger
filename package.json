@@ -1,0 +1,13 @@
+{
+  "name": "@noah/ledger",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Double-entry accounting engine with immutable journal entries, trial balances and period closing.",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "test": "node --test",
+    "start": "node src/demo.ts"
+  },
+  "license": "MIT"
+}
