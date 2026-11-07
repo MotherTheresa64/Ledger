@@ -3,11 +3,23 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Double-entry accounting engine with immutable journal entries, trial balances and period closing.",
-  "engines": { "node": ">=24" },
+  "description": "Double-entry accounting on SQLite with immutable journals and closed periods, plus a browser demo.",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "test": "node --test",
-    "start": "node src/demo.ts"
+    "start": "node src/server.ts"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MotherTheresa64/ledger.git"
+  },
+  "homepage": "https://github.com/MotherTheresa64/ledger#readme",
+  "keywords": [
+    "nodejs",
+    "typescript",
+    "zero-dependencies"
+  ]
 }
