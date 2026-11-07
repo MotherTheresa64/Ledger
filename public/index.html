@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" href="data:," />
+<title>Ledger — double-entry accounting</title>
+<style>
+  :root{--ink:#14181d;--muted:#5b6670;--line:#e2e6ea;--bg:#f6f7f9;--card:#fff;--ok:#177245;--bad:#b3261e}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  header{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:14px 20px;background:var(--card);border-bottom:1px solid var(--line);flex-wrap:wrap}
+  h1{margin:0;font-size:16px;letter-spacing:-.01em}
+  h1 span{display:block;font-size:12.5px;font-weight:400;color:var(--muted)}
+  main{max-width:1000px;margin:0 auto;padding:18px 20px 40px;display:grid;gap:16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+  @media (max-width:860px){.grid{grid-template-columns:1fr}}
+  label{display:block;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:0 0 6px}
+  input,select{padding:9px 11px;font:14px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;border:1px solid var(--line);border-radius:8px;background:#fff;color:inherit;width:100%}
+  button{font:inherit;font-weight:600;padding:8px 13px;border-radius:8px;border:1px solid var(--ink);background:var(--ink);color:#fff;cursor:pointer;white-space:nowrap}
+  button.secondary{background:#fff;color:var(--ink);border-color:var(--line)}
+  .row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-top:12px}
+  .row > div{flex:1;min-width:130px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:left;font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:0 8px 6px 0;border-bottom:1px solid var(--line)}
+  td{padding:7px 8px 7px 0;border-bottom:1px solid #f1f3f5;vertical-align:top}
+  td.num,th.num{text-align:right;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .flag{font-size:12.5px;font-weight:700;padding:4px 9px;border-radius:6px;background:#f2faf5;color:var(--ok)}
+  .flag.no{background:#fdf4f3;color:var(--bad)}
+  .note{margin:12px 0 0;font-size:13px;padding:9px 11px;border-radius:8px}
+  .note.ok{background:#f2faf5;color:var(--ok)}
+  .note.bad{background:#fdf4f3;color:var(--bad)}
+  .entries{list-style:none;margin:0;padding:0;display:grid;gap:8px;max-height:340px;overflow:auto}
+  .entries li{border:1px solid var(--line);border-radius:8px;padding:9px 11px;font-size:13px}
+  .entries .memo{font-weight:600}
+  .entries .postings{color:var(--muted);font-family:ui-monospace,monospace;font-size:12.5px;margin-top:3px}
+  .hint{color:var(--muted);font-size:12.5px;margin:10px 0 0}
+</style>
+</head>
+<body>
+<header>
+  <h1>Ledger<span>double-entry books that refuse to go out of balance</span></h1>
+  <span id="balanced" class="flag">checking…</span>
+</header>
+<main>
+  <section class="card">
+    <label>Accounts</label>
+    <table>
+      <thead><tr><th>Code</th><th>Name</th><th>Type</th><th class="num">Balance</th></tr></thead>
+      <tbody id="accounts"></tbody>
+    </table>
+    <p class="hint" id="totals">—</p>
+  </section>
+
+  <div class="grid">
+    <section class="card">
+      <label>Post an entry</label>
+      <div class="row"><div><label for="memo">Memo</label><input id="memo" type="text" value="Coffee for the office" /></div></div>
+      <div class="row">
+        <div><label for="debit">Debit</label><select id="debit"></select></div>
+        <div><label for="credit">Credit</label><select id="credit"></select></div>
+        <div><label for="amount">Amount</label><input id="amount" type="text" value="12.50" /></div>
+      </div>
+      <div class="row"><button id="post" type="button">Post entry</button></div>
+      <p id="note" class="note" hidden></p>
+      <p class="hint">Amounts are whole cents internally; a half-cent entry is impossible, and an unbalanced one is refused before anything is written.</p>
+    </section>
+
+    <section class="card">
+      <label>Periods</label>
+      <div class="row">
+        <div><label for="period">Close a period</label><input id="period" type="text" value="" placeholder="YYYY-MM" /></div>
+        <button id="close" class="secondary" type="button">Close</button>
+      </div>
+      <p class="hint" id="periods">—</p>
+      <p class="hint">A closed period refuses new entries, while a replayed request still returns the entry it already created.</p>
+    </section>
+  </div>
+
+  <section class="card">
+    <label>Journal</label>
+    <ul id="entries" class="entries"></ul>
+  </section>
+</main>
+<script>
+  const $ = (selector) => document.querySelector(selector);
+  let accounts = [];
+  const money = (cents) => (cents / 100).toFixed(2);
+
+  function note(text, kind) {
+    const node = $("#note");
+    node.textContent = text;
+    node.className = "note " + kind;
+    node.hidden = false;
+  }
+
+  async function loadAccounts() {
+    const data = await (await fetch("/accounts")).json();
+    accounts = data.accounts;
+    const body = $("#accounts");
+    body.replaceChildren();
+    for (const account of accounts) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${account.code}</td><td>${account.name}</td><td>${account.type}</td><td class="num">${money(account.balance)}</td>`;
+      body.append(tr);
+    }
+    const trial = data.trialBalance;
+    $("#totals").textContent = `debits ${money(trial.totalDebit)} · credits ${money(trial.totalCredit)}`;
+    const flag = $("#balanced");
+    flag.textContent = trial.balanced ? "in balance" : "out of balance";
+    flag.className = "flag" + (trial.balanced ? "" : " no");
+    for (const select of [$("#debit"), $("#credit")]) {
+      const previous = select.value;
+      select.replaceChildren();
+      for (const account of accounts) {
+        const option = document.createElement("option");
+        option.value = account.code;
+        option.textContent = `${account.code} ${account.name}`;
+        select.append(option);
+      }
+      if (previous) select.value = previous;
+    }
+    if (accounts.length > 1) {
+      if (!$("#debit").value) $("#debit").value = accounts[0].code;
+      if (!$("#credit").value) $("#credit").value = accounts[accounts.length - 1].code;
+    }
+  }
+
+  async function loadEntries() {
+    const data = await (await fetch("/entries")).json();
+    const list = $("#entries");
+    list.replaceChildren();
+    for (const entry of data.entries.slice().reverse()) {
+      const item = document.createElement("li");
+      const postings = entry.postings
+        .map((p) => `${p.direction === "debit" ? "Dr" : "Cr"} ${p.account} ${money(p.amount)}`)
+        .join("  ·  ");
+      item.innerHTML = `<div class="memo">${entry.memo}</div><div class="postings">${postings}</div>`;
+      list.append(item);
+    }
+  }
+
+  async function loadPeriods() {
+    const data = await (await fetch("/periods")).json();
+    $("#periods").textContent = data.closed.length ? "closed: " + data.closed.join(", ") : "no periods closed";
+    if (!$("#period").value && data.current) $("#period").value = data.current;
+  }
+
+  async function refresh() {
+    await Promise.all([loadAccounts(), loadEntries(), loadPeriods()]);
+  }
+
+  async function post() {
+    const res = await fetch("/entries", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        memo: $("#memo").value,
+        debit: $("#debit").value,
+        credit: $("#credit").value,
+        amount: Math.round(Number($("#amount").value) * 100),
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) { note(data.message ?? "Rejected.", "bad"); return; }
+    note(`Posted ${data.entry.memo} (${data.deduped ? "replayed, not duplicated" : "new entry"}).`, "ok");
+    await refresh();
+  }
+
+  async function closePeriod() {
+    const period = $("#period").value.trim();
+    if (!period) return;
+    const res = await fetch("/periods/close", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ period }),
+    });
+    const data = await res.json();
+    if (!res.ok) { note(data.message ?? "Could not close.", "bad"); return; }
+    note(`Closed ${period}.`, "ok");
+    await loadPeriods();
+  }
+
+  $("#post").addEventListener("click", post);
+  $("#close").addEventListener("click", closePeriod);
+  refresh();
+</script>
+</body>
+</html>
